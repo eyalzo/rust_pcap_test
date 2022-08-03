@@ -1,9 +1,16 @@
+mod connections;
+
+use std::collections::HashMap;
 use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 use log::{debug, info, trace};
 use pcap::Device;
+use crate::connections::{Conn};
 
 fn main() {
     info!("Start pcap_test...");
+
+    // Connection list
+    let mut conn_list: HashMap<u128, Conn> = HashMap::new();
 
     let device_list = Device::list().expect("Failed to get device list");
     info!("Device list has {} elements. Those with addresses:", device_list.len());
@@ -42,10 +49,21 @@ fn main() {
                             TransportSlice::Tcp(tcp) => {
                                 // IP payload is already calculated, while TCP header is that 32-bit units (see RFC)
                                 let tcp_payload_len = ip_header.payload_len() - 4 * tcp.data_offset() as u16;
-                                println!("      TCP: {:?}:{} => {:?}:{}, len {}", ip_header.source_addr(),
-                                         tcp.source_port(), ip_header.destination_addr(),
+                                let conn_sign = Conn::sign_by_tuple(ip_header.source_addr(),
+                                                                    tcp.source_port(),
+                                                                    ip_header.destination_addr(),
+                                                                    tcp.destination_port());
+                                let new_seq = conn_list.len() as u16 + 1;
+                                let existing_conn = conn_list.entry(conn_sign).or_insert(Conn::new(new_seq));
+                                existing_conn.add_bytes(tcp_payload_len as u64);
+                                println!("      TCP {}: {:?}:{} => {:?}:{}, len {}, total {}",
+                                         existing_conn.sequence,
+                                         ip_header.source_addr(),
+                                         tcp.source_port(),
+                                         ip_header.destination_addr(),
                                          tcp.destination_port(),
-                                         tcp_payload_len);
+                                         tcp_payload_len,
+                                         existing_conn.total_bytes);
                             }
                             _ => {}
                         }
