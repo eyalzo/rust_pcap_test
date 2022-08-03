@@ -1,3 +1,4 @@
+use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::Instant;
 
@@ -28,5 +29,11 @@ impl Conn {
     pub fn add_bytes(&mut self, byte_count: u64) {
         self.total_bytes += byte_count;
         self.packet_count += 1;
+    }
+}
+
+impl std::fmt::Debug for Conn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "packets: {}, bytes: {}, time: {}ms", self.packet_count, self.total_bytes, self.start_time.elapsed().as_millis())
     }
 }
