@@ -8,11 +8,13 @@ pub struct Conn {
     pub(crate) sequence: u16,
     /// Total number of TCP payload bytes so far. May contain duplicates in case of retransmissions
     pub(crate) total_bytes: u64,
+    /// Number of packets. Can be empty packets or overlap sequences
+    pub(crate) packet_count: u32,
 }
 
 impl Conn {
     pub(crate) fn new(sequence: u16) -> Self {
-        Self { start_time: Instant::now(), sequence, total_bytes: 0 }
+        Self { start_time: Instant::now(), sequence, total_bytes: 0, packet_count: 0 }
     }
 
     pub fn sign_by_tuple(src_ip: Ipv4Addr, src_port: u16, dst_ip: Ipv4Addr, dst_port: u16) -> u128 {
@@ -25,5 +27,6 @@ impl Conn {
 
     pub fn add_bytes(&mut self, byte_count: u64) {
         self.total_bytes += byte_count;
+        self.packet_count += 1;
     }
 }

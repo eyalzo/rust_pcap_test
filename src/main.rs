@@ -54,16 +54,17 @@ fn main() {
                                                                     ip_header.destination_addr(),
                                                                     tcp.destination_port());
                                 let new_seq = conn_list.len() as u16 + 1;
-                                let existing_conn = conn_list.entry(conn_sign).or_insert(Conn::new(new_seq));
-                                existing_conn.add_bytes(tcp_payload_len as u64);
-                                println!("      TCP {}: {:?}:{} => {:?}:{}, len {}, total {}",
-                                         existing_conn.sequence,
+                                let conn = conn_list.entry(conn_sign).or_insert(Conn::new(new_seq));
+                                conn.add_bytes(tcp_payload_len as u64);
+                                println!("      TCP {}: {:?}:{} => {:?}:{}, len {}, total {}, packets {}",
+                                         conn.sequence,
                                          ip_header.source_addr(),
                                          tcp.source_port(),
                                          ip_header.destination_addr(),
                                          tcp.destination_port(),
                                          tcp_payload_len,
-                                         existing_conn.total_bytes);
+                                         conn.total_bytes,
+                                         conn.packet_count);
                             }
                             _ => {}
                         }
