@@ -1,52 +1,56 @@
-use etherparse::{SlicedPacket, TransportSlice};
+use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
+use log::{debug, info, trace};
 use pcap::Device;
 
 fn main() {
-    println!("Start pcap_test...");
+    info!("Start pcap_test...");
 
     let device_list = Device::list().expect("Failed to get device list");
-    println!("Device list has {} elements. Those with addresses:", device_list.len());
+    info!("Device list has {} elements. Those with addresses:", device_list.len());
     for cur_device in device_list {
         if cur_device.addresses.len() <= 0 { continue; }
-        println!("   Device '{}' = {} ({} addresses)", cur_device.name,
+        debug!("   Device '{}' = {} ({} addresses)", cur_device.name,
                  cur_device.desc.unwrap_or(String::from("unknown")),
                  cur_device.addresses.len());
         for cur_addr in cur_device.addresses {
-            println!("      {}", cur_addr.addr);
+            trace!("      {}", cur_addr.addr);
         }
     }
 
+    // Get the default device
     let mut cap = Device::lookup().unwrap().open().unwrap();
 
-    println!("Default device name: {:?}", cap.get_datalink().get_name().unwrap());
-    println!("Default device description: {:?}", cap.get_datalink().get_description().unwrap());
+    info!("Default device: {:?} ({:?})", cap.get_datalink().get_name().unwrap(),
+             cap.get_datalink().get_description().unwrap());
 
     let mut packet_count = 0;
     while let Ok(packet) = cap.next() {
         packet_count += 1;
         // println!("received packet! {:?}", packet);
-        println!("   Packet {}, caplen: {}, packetlen: {}", packet_count, packet.len(), packet.header.len);
+        trace!("   Packet {}, caplen: {}, packetlen: {}", packet_count, packet.len(), packet.header.len);
         // Parse
         match SlicedPacket::from_ethernet(&packet) {
             Err(value) => println!("Err {:?}", value),
             Ok(value) => {
-                println!("   link: {:?}", value.link);
-                println!("   vlan: {:?}", value.vlan);
-                println!("   ip: {:?}", value.ip);
-                println!("   transport: {:?}", value.transport);
-                match value.transport {
-                    None => {}
-                    Some(trans) => {
-                        match trans {
-                            TransportSlice::Icmpv4(_) => {}
-                            TransportSlice::Icmpv6(_) => {}
-                            TransportSlice::Udp(_) => {}
+                // For TCP packets, there should be link, ip and transport values
+                if !value.ip.is_some() || !value.transport.is_some() { continue; }
+
+                // IP addresses
+                match value.ip.unwrap() {
+                    InternetSlice::Ipv4(ip_header, _) => {
+                        match value.transport.unwrap() {
                             TransportSlice::Tcp(tcp) => {
-                                println!("      TCP: src {}, dst {}", tcp.source_port(), tcp.destination_port())
+                                // IP payload is already calculated, while TCP header is that 32-bit units (see RFC)
+                                let tcp_payload_len = ip_header.payload_len() - 4 * tcp.data_offset() as u16;
+                                println!("      TCP: {:?}:{} => {:?}:{}, len {}", ip_header.source_addr(),
+                                         tcp.source_port(), ip_header.destination_addr(),
+                                         tcp.destination_port(),
+                                         tcp_payload_len);
                             }
-                            TransportSlice::Unknown(_) => {}
+                            _ => {}
                         }
                     }
+                    _ => {}
                 }
             }
         }
