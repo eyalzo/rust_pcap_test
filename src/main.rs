@@ -1,3 +1,4 @@
+use etherparse::{SlicedPacket, TransportSlice};
 use pcap::Device;
 
 fn main() {
@@ -24,7 +25,31 @@ fn main() {
     while let Ok(packet) = cap.next() {
         packet_count += 1;
         // println!("received packet! {:?}", packet);
-        println!("   Packet {}, len: {}, header: {}", packet_count, packet.len(), packet.header.len);
+        println!("   Packet {}, caplen: {}, packetlen: {}", packet_count, packet.len(), packet.header.len);
+        // Parse
+        match SlicedPacket::from_ethernet(&packet) {
+            Err(value) => println!("Err {:?}", value),
+            Ok(value) => {
+                println!("   link: {:?}", value.link);
+                println!("   vlan: {:?}", value.vlan);
+                println!("   ip: {:?}", value.ip);
+                println!("   transport: {:?}", value.transport);
+                match value.transport {
+                    None => {}
+                    Some(trans) => {
+                        match trans {
+                            TransportSlice::Icmpv4(_) => {}
+                            TransportSlice::Icmpv6(_) => {}
+                            TransportSlice::Udp(_) => {}
+                            TransportSlice::Tcp(tcp) => {
+                                println!("      TCP: src {}, dst {}", tcp.source_port(), tcp.destination_port())
+                            }
+                            TransportSlice::Unknown(_) => {}
+                        }
+                    }
+                }
+            }
+        }
     }
 
     println!("End pcap_test.");
