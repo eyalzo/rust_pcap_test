@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::Instant;
+use log::{warn};
 use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 use pcap::Packet;
 
@@ -11,12 +12,17 @@ pub struct Connections {
     conn_list: HashMap<u128, Conn>,
     /// All time counter of connections added to list, including removed ones
     conn_count: u32,
-    /// All time packets count, including errors, duplicates, etc.
+    /// All time packets count, including all other packet_xxx_count fields, such as errors, duplicates, etc.
     packet_count: u64,
     /// Number of times the packet was not processed because capture was too short
-    packet_len_error_count: u64,
+    packet_len_error_count: u32,
+    /// Number of times the packet was not processed because of parsing error
+    packet_parsing_error_count: u32,
+    /// Number of times the packet was not a TCP/IP, which is normal and pretty high if capturing UDP, ICMP etc
+    packet_not_tcp_count: u32,
 }
 
+/// Hold TCP connections, along with statistics per connection and timeouts.
 impl Connections {
     pub fn new() -> Connections {
         Connections {
@@ -24,11 +30,16 @@ impl Connections {
             conn_count: 0,
             packet_count: 0,
             packet_len_error_count: 0,
+            packet_parsing_error_count: 0,
+            packet_not_tcp_count: 0,
         }
     }
 
+    /// Process a pcap packet.
+    /// It identifies the connection and handles everything related to statistics, state, etc.
     pub fn process_packet(&mut self, packet: &Packet) {
         self.packet_count += 1;
+        // Check if the captured packet is complete
         if (packet.len() as u32) < packet.header.len {
             self.packet_len_error_count += 1;
             return;
@@ -36,10 +47,17 @@ impl Connections {
 
         // Parse
         match SlicedPacket::from_ethernet(packet) {
-            Err(value) => println!("Err {:?}", value),
+            Err(value) => {
+                self.packet_parsing_error_count += 1;
+                warn!("*** Parsing error: {:?}", value);
+                return;
+            }
             Ok(value) => {
                 // For TCP packets, there should be link, ip and transport values
-                if !value.ip.is_some() || !value.transport.is_some() { return; }
+                if !value.ip.is_some() || !value.transport.is_some() {
+                    self.packet_not_tcp_count += 1;
+                    return;
+                }
 
                 // IP addresses
                 match value.ip.unwrap() {
@@ -66,10 +84,16 @@ impl Connections {
                                          tcp_payload_len,
                                          conn);
                             }
-                            _ => {}
+                            _ => {
+                                self.packet_not_tcp_count += 1;
+                                return;
+                            }
                         }
                     }
-                    _ => {}
+                    _ => {
+                        self.packet_not_tcp_count += 1;
+                        return;
+                    }
                 }
             }
         }
