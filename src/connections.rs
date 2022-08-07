@@ -5,12 +5,16 @@ use std::time::Instant;
 use log::{warn};
 use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 use pcap::Packet;
+use crate::connections::PacketDir::SrcLowAddr;
 
+/// Hold TCP connections, along with statistics per connection and timeouts
 #[derive(Debug, Clone)]
 pub struct Connections {
     /// Active connection list
+    /// Mapped by the 4-tuple, where the lower address is always considered "source" or xxx_1 in field names.
     conn_list: HashMap<u128, Conn>,
     /// All time counter of connections added to list, including removed ones
+    /// Each connection holds everything related to both directions
     conn_count: u32,
     /// All time packets count, including all other packet_xxx_count fields, such as errors, duplicates, etc.
     packet_count: u64,
@@ -22,7 +26,6 @@ pub struct Connections {
     packet_not_tcp_count: u32,
 }
 
-/// Hold TCP connections, along with statistics per connection and timeouts.
 impl Connections {
     pub fn new() -> Connections {
         Connections {
@@ -66,15 +69,15 @@ impl Connections {
                             TransportSlice::Tcp(tcp) => {
                                 // IP payload is already calculated, while TCP header is that 32-bit units (see RFC)
                                 let tcp_payload_len = ip_header.payload_len() - 4 * tcp.data_offset() as u16;
-                                let conn_sign = Conn::sign_by_tuple(ip_header.source_addr(),
-                                                                    tcp.source_port(),
-                                                                    ip_header.destination_addr(),
-                                                                    tcp.destination_port());
+                                let (conn_sign, packet_dir) = Conn::sign_by_tuple(ip_header.source_addr(),
+                                                                                  tcp.source_port(),
+                                                                                  ip_header.destination_addr(),
+                                                                                  tcp.destination_port());
                                 let new_seq = self.conn_list.len() as u16 + 1;
                                 let conn = self.conn_list.entry(conn_sign).or_insert(Conn::new(new_seq));
                                 // A little odd way to count connections but it works for now
-                                if conn.packet_count == 0 { self.conn_count += 1; }
-                                conn.add_bytes(tcp_payload_len as u64);
+                                if conn.packet_count_1 == 0 || conn.packet_count_2 == 0 { self.conn_count += 1; }
+                                conn.add_bytes(tcp_payload_len as u64, packet_dir);
                                 println!("      TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
                                          conn.sequence,
                                          ip_header.source_addr(),
@@ -100,39 +103,97 @@ impl Connections {
     }
 }
 
+/// Hold a TCP connections, along with statistics
+/// The lower address is always considered "source" or xxx_1 in field names.
 #[derive(Clone)]
 pub struct Conn {
     /// When the structure was initialized
     start_time: Instant,
+    /// Connection state
+    state: ConnState,
     /// Sequence of the connection
     pub(crate) sequence: u16,
-    /// Total number of TCP payload bytes so far. May contain duplicates in case of retransmissions
-    pub(crate) total_bytes: u64,
-    /// Number of packets. Can be empty packets or overlap sequences
-    pub(crate) packet_count: u32,
+    /// Total number of TCP payload bytes so far, from lower to higher address
+    /// May contain duplicates in case of retransmissions
+    pub(crate) total_bytes_1: u64,
+    /// Total number of TCP payload bytes so far, from higher to lower address
+    /// May contain duplicates in case of retransmissions
+    pub(crate) total_bytes_2: u64,
+    /// Number of packets. Can be empty packets or overlap sequences, from lower to higher address
+    pub(crate) packet_count_1: u32,
+    /// Number of packets. Can be empty packets or overlap sequences, from higher to lower address
+    pub(crate) packet_count_2: u32,
 }
 
 impl Conn {
     pub(crate) fn new(sequence: u16) -> Self {
-        Self { start_time: Instant::now(), sequence, total_bytes: 0, packet_count: 0 }
+        Self {
+            state: ConnState::Created,
+            start_time: Instant::now(),
+            sequence,
+            total_bytes_1: 0,
+            total_bytes_2: 0,
+            packet_count_1: 0,
+            packet_count_2: 0,
+        }
     }
 
-    pub fn sign_by_tuple(src_ip: Ipv4Addr, src_port: u16, dst_ip: Ipv4Addr, dst_port: u16) -> u128 {
-        let sign: u128 = (u32::from_be_bytes(src_ip.octets()) as u128) |
-            (src_port as u128) << 32 |
-            (u32::from_be_bytes(dst_ip.octets()) as u128) << 48 |
-            (dst_port as u128) << 80;
-        return sign;
+    /// Connection signature by 4-tuple, sorted by address, so both directions get the same deterministic signature
+    /// Return the signature, along with the direction to be used later for statistics
+    pub fn sign_by_tuple(src_ip: Ipv4Addr, src_port: u16, dst_ip: Ipv4Addr, dst_port: u16) -> (u128, PacketDir) {
+        if src_ip < dst_ip || src_port < dst_port {
+            let sign = (u32::from_be_bytes(src_ip.octets()) as u128) |
+                (src_port as u128) << 32 |
+                (u32::from_be_bytes(dst_ip.octets()) as u128) << 48 |
+                (dst_port as u128) << 80;
+            return (sign, PacketDir::SrcLowAddr);
+        }
+        let sign = (u32::from_be_bytes(dst_ip.octets()) as u128) |
+            (dst_port as u128) << 32 |
+            (u32::from_be_bytes(src_ip.octets()) as u128) << 48 |
+            (src_port as u128) << 80;
+        return (sign, PacketDir::DstLowAddr);
     }
 
-    pub fn add_bytes(&mut self, byte_count: u64) {
-        self.total_bytes += byte_count;
-        self.packet_count += 1;
+    pub fn add_bytes(&mut self, byte_count: u64, packet_dir: PacketDir) {
+        match packet_dir {
+            SrcLowAddr => {
+                self.total_bytes_1 += byte_count;
+                self.packet_count_1 += 1;
+            }
+            PacketDir::DstLowAddr => {
+                self.total_bytes_2 += byte_count;
+                self.packet_count_2 += 1;
+            }
+        }
     }
 }
 
 impl std::fmt::Debug for Conn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "packets: {}, bytes: {}, time: {}ms", self.packet_count, self.total_bytes, self.start_time.elapsed().as_millis())
+        write!(f, "state: {:?}, packets: {}/{}, bytes: {}/{}, time: {}ms", self.state, self.packet_count_1,
+               self.packet_count_2, self.total_bytes_1, self.total_bytes_2,
+               self.start_time.elapsed().as_millis())
     }
+}
+
+#[derive(Clone, Debug)]
+enum ConnState {
+    /// No SYN packets were detected yet
+    Created,
+    /// A SYN was detected, sent by the specified direction
+    SynSent(PacketDir),
+    Established,
+    FinWait1(PacketDir),
+    FinWait2(PacketDir),
+    Closed,
+}
+
+/// State direction is required because each connection handles both directions of traffic.
+#[derive(Clone, Debug)]
+pub enum PacketDir {
+    /// The sender of the related packet is the connection's source address
+    SrcLowAddr,
+    /// The sender of the related packet is the connection's destination address
+    DstLowAddr,
 }
