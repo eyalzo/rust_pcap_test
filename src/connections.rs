@@ -77,7 +77,21 @@ impl Connections {
                                 let conn = self.conn_list.entry(conn_sign).or_insert(Conn::new(new_seq));
                                 // A little odd way to count connections but it works for now
                                 if conn.packet_count_1 == 0 || conn.packet_count_2 == 0 { self.conn_count += 1; }
-                                conn.add_bytes(tcp_payload_len as u64, packet_dir);
+                                // Check if connection is new and we still look for SYN
+                                match &conn.state {
+                                    ConnState::Created => {
+                                        if tcp.syn() && !tcp.ack() {
+                                            conn.state = ConnState::SynSent(packet_dir.to_owned(), tcp.sequence_number() + 1);
+                                        }
+                                    }
+                                    ConnState::SynSent(syn_dir, expected_tcp_ack) => {
+                                        if tcp.syn() && tcp.ack() && syn_dir != &packet_dir && tcp.acknowledgment_number() == *expected_tcp_ack {
+                                            conn.state = ConnState::Established;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                conn.add_bytes(tcp_payload_len as u64, &packet_dir);
                                 println!("      TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
                                          conn.sequence,
                                          ip_header.source_addr(),
@@ -155,7 +169,7 @@ impl Conn {
         return (sign, PacketDir::DstLowAddr);
     }
 
-    pub fn add_bytes(&mut self, byte_count: u64, packet_dir: PacketDir) {
+    pub fn add_bytes(&mut self, byte_count: u64, packet_dir: &PacketDir) {
         match packet_dir {
             SrcLowAddr => {
                 self.total_bytes_1 += byte_count;
@@ -181,8 +195,8 @@ impl std::fmt::Debug for Conn {
 enum ConnState {
     /// No SYN packets were detected yet
     Created,
-    /// A SYN was detected, sent by the specified direction
-    SynSent(PacketDir),
+    /// A SYN was detected, sent by the specified direction, carrying the specified TCP sequence
+    SynSent(PacketDir, u32),
     Established,
     FinWait1(PacketDir),
     FinWait2(PacketDir),
@@ -190,7 +204,7 @@ enum ConnState {
 }
 
 /// State direction is required because each connection handles both directions of traffic.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PacketDir {
     /// The sender of the related packet is the connection's source address
     SrcLowAddr,
