@@ -88,7 +88,10 @@ impl Connections {
                                                                                   ip_header.destination_addr(),
                                                                                   tcp.destination_port());
                                 let conn = self.get_connection_or_add_new(conn_sign);
-                                if tcp.rst() {
+                                // Check for RST or ACK to a second (the other party) FIN
+                                if tcp.rst() || matches!(&conn.state,ConnState::FinWait2(wait_dir, wait_ack)
+                                    if wait_dir != &packet_dir && tcp.ack() && tcp.sequence_number() == *wait_ack)
+                                {
                                     // With RST we don't care who sent first and we no longer handle data
                                     conn.state = ConnState::Closed(packet_dir.to_owned());
                                 } else if tcp.fin() {
@@ -101,12 +104,6 @@ impl Connections {
                                         ConnState::FinWait1(wait_dir, _) => {
                                             if wait_dir != &packet_dir {
                                                 conn.state = ConnState::FinWait2(packet_dir.to_owned(), tcp.sequence_number() + 1)
-                                            }
-                                        }
-                                        // The side that sent the first FIN might ACKs the second FIN
-                                        ConnState::FinWait2(wait_dir, wait_ack) => {
-                                            if wait_dir != &packet_dir && tcp.ack() && tcp.sequence_number() == *wait_ack {
-                                                conn.state = ConnState::Closed(wait_dir.to_owned())
                                             }
                                         }
                                         // This can happen but normally should not
