@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::Instant;
-use log::{warn};
+use log::{debug, warn};
 use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 use pcap::Packet;
 use crate::connections::PacketDir::SrcLowAddr;
@@ -104,7 +104,7 @@ impl Connections {
                                     _ => {}
                                 }
                                 conn.add_bytes(tcp_payload_len as u64, &packet_dir);
-                                println!("      TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
+                                debug!("      TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
                                          conn.conn_sequence,
                                          ip_header.source_addr(),
                                          tcp.source_port(),

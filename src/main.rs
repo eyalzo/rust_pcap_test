@@ -1,14 +1,14 @@
 mod connections;
 
+use env_logger::Env;
 use log::{debug, info, trace};
 use pcap::Device;
 use crate::connections::{Connections};
 
 fn main() {
+    // If RUST_LOG is not set, then default to INFO level
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     info!("Start pcap_test...");
-
-    // Connection list
-    // let mut conn_list: HashMap<u128, Conn> = HashMap::new();
 
     let device_list = Device::list().expect("Failed to get device list");
     info!("Device list has {} elements. Those with addresses:", device_list.len());
@@ -34,5 +34,5 @@ fn main() {
         connections.process_packet(&packet);
     }
 
-    println!("End pcap_test.");
+    info!("End pcap_test.");
 }
