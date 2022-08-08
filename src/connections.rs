@@ -127,6 +127,7 @@ impl Connections {
                                     }
                                 }
                                 conn.add_bytes(tcp_payload_len as u64, &packet_dir);
+                                // Determine log level by connection's state
                                 let log_level = match conn.state {
                                     ConnState::Established(_) => {
                                         // If it was just established now by one of the parties
@@ -139,7 +140,7 @@ impl Connections {
                                     }
                                     _ => { Level::Debug }
                                 };
-                                log!(log_level, "      TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
+                                log!(log_level, "TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
                                          conn.conn_sequence,
                                          ip_header.source_addr(),
                                          tcp.source_port(),
