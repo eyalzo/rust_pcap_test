@@ -1,4 +1,5 @@
 mod connections;
+mod utils;
 
 use env_logger::Env;
 use log::{debug, info, trace};

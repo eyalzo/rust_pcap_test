@@ -7,6 +7,7 @@ use log::{Level, log, warn};
 use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 use pcap::Packet;
 use crate::connections::PacketDir::SrcLowAddr;
+use crate::utils::tcp_flags_to_string;
 
 /// Hold TCP connections, along with statistics per connection and timeouts
 #[derive(Debug, Clone)]
@@ -140,13 +141,14 @@ impl Connections {
                                     }
                                     _ => { Level::Debug }
                                 };
-                                log!(log_level, "TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
+                                log!(log_level, "TCP {}: {:?}:{} => {:?}:{}, len {}, {} {:?}",
                                          conn.conn_sequence,
                                          ip_header.source_addr(),
                                          tcp.source_port(),
                                          ip_header.destination_addr(),
                                          tcp.destination_port(),
                                          tcp_payload_len,
+                                    tcp_flags_to_string(&tcp),
                                          conn);
                             }
                             _ => {
