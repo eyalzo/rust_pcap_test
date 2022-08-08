@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use std::fmt;
 use std::net::Ipv4Addr;
@@ -15,7 +16,7 @@ pub struct Connections {
     conn_list: HashMap<u128, Conn>,
     /// All time counter of connections added to list, including removed ones
     /// Each connection holds everything related to both directions
-    conn_count: u32,
+    conn_alltime_count: u32,
     /// All time packets count, including all other packet_xxx_count fields, such as errors, duplicates, etc.
     packet_count: u64,
     /// Number of times the packet was not processed because capture was too short
@@ -27,14 +28,27 @@ pub struct Connections {
 }
 
 impl Connections {
+    /// Create connections object only once
+    /// Holds all the connections and related statistics
     pub fn new() -> Connections {
         Connections {
             conn_list: HashMap::new(),
-            conn_count: 0,
+            conn_alltime_count: 0,
             packet_count: 0,
             packet_len_error_count: 0,
             packet_parsing_error_count: 0,
             packet_not_tcp_count: 0,
+        }
+    }
+
+    /// Get an existing connection by signature (TCP 4 tuple), or return a new connection
+    fn get_connection_or_add_new(&mut self, conn_sign: u128) -> &mut Conn {
+        match self.conn_list.entry(conn_sign) {
+            Occupied(o) => { o.into_mut() }
+            Vacant(v) => {
+                self.conn_alltime_count += 1;
+                v.insert(Conn::new(self.conn_alltime_count))
+            }
         }
     }
 
@@ -73,13 +87,11 @@ impl Connections {
                                                                                   tcp.source_port(),
                                                                                   ip_header.destination_addr(),
                                                                                   tcp.destination_port());
-                                let new_seq = self.conn_list.len() as u16 + 1;
-                                let conn = self.conn_list.entry(conn_sign).or_insert(Conn::new(new_seq));
-                                // A little odd way to count connections but it works for now
-                                if conn.packet_count_1 == 0 || conn.packet_count_2 == 0 { self.conn_count += 1; }
+                                let conn = self.get_connection_or_add_new(conn_sign);
                                 // Check if connection is new and we still look for SYN
                                 match &conn.state {
                                     ConnState::Created => {
+                                        // A SYN without ACK
                                         if tcp.syn() && !tcp.ack() {
                                             conn.state = ConnState::SynSent(packet_dir.to_owned(), tcp.sequence_number() + 1);
                                         }
@@ -93,7 +105,7 @@ impl Connections {
                                 }
                                 conn.add_bytes(tcp_payload_len as u64, &packet_dir);
                                 println!("      TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
-                                         conn.sequence,
+                                         conn.conn_sequence,
                                          ip_header.source_addr(),
                                          tcp.source_port(),
                                          ip_header.destination_addr(),
@@ -125,8 +137,8 @@ pub struct Conn {
     start_time: Instant,
     /// Connection state
     state: ConnState,
-    /// Sequence of the connection
-    pub(crate) sequence: u16,
+    /// Sequence of the connection (all time counter)
+    pub(crate) conn_sequence: u32,
     /// Total number of TCP payload bytes so far, from lower to higher address
     /// May contain duplicates in case of retransmissions
     pub(crate) total_bytes_1: u64,
@@ -140,11 +152,11 @@ pub struct Conn {
 }
 
 impl Conn {
-    pub(crate) fn new(sequence: u16) -> Self {
+    pub(crate) fn new(conn_sequence: u32) -> Self {
         Self {
             state: ConnState::Created,
             start_time: Instant::now(),
-            sequence,
+            conn_sequence,
             total_bytes_1: 0,
             total_bytes_2: 0,
             packet_count_1: 0,
