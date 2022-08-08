@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::Instant;
-use log::{debug, warn};
+use log::{Level, log, warn};
 use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 use pcap::Packet;
 use crate::connections::PacketDir::SrcLowAddr;
@@ -88,23 +88,61 @@ impl Connections {
                                                                                   ip_header.destination_addr(),
                                                                                   tcp.destination_port());
                                 let conn = self.get_connection_or_add_new(conn_sign);
-                                // Check if connection is new and we still look for SYN
-                                match &conn.state {
-                                    ConnState::Created => {
-                                        // A SYN without ACK
-                                        if tcp.syn() && !tcp.ack() {
-                                            conn.state = ConnState::SynSent(packet_dir.to_owned(), tcp.sequence_number() + 1);
+                                if tcp.rst() {
+                                    // With RST we don't care who sent first and we no longer handle data
+                                    conn.state = ConnState::Closed(packet_dir.to_owned());
+                                } else if tcp.fin() {
+                                    match &conn.state {
+                                        // Normal - one side signals that it wants to close
+                                        ConnState::Established(_) => {
+                                            conn.state = ConnState::FinWait1(packet_dir.to_owned(), tcp.sequence_number() + 1)
                                         }
-                                    }
-                                    ConnState::SynSent(syn_dir, expected_tcp_ack) => {
-                                        if tcp.syn() && tcp.ack() && syn_dir != &packet_dir && tcp.acknowledgment_number() == *expected_tcp_ack {
-                                            conn.state = ConnState::Established;
+                                        // The other side might also sent a FIN
+                                        ConnState::FinWait1(wait_dir, _) => {
+                                            if wait_dir != &packet_dir {
+                                                conn.state = ConnState::FinWait2(packet_dir.to_owned(), tcp.sequence_number() + 1)
+                                            }
                                         }
+                                        // The side that sent the first FIN might ACKs the second FIN
+                                        ConnState::FinWait2(wait_dir, wait_ack) => {
+                                            if wait_dir != &packet_dir && tcp.ack() && tcp.sequence_number() == *wait_ack {
+                                                conn.state = ConnState::Closed(wait_dir.to_owned())
+                                            }
+                                        }
+                                        // This can happen but normally should not
+                                        _ => {}
                                     }
-                                    _ => {}
+                                } else {
+                                    // Check if connection is new and we still look for SYN
+                                    match &conn.state {
+                                        ConnState::Created => {
+                                            // A SYN without ACK
+                                            if tcp.syn() && !tcp.ack() {
+                                                conn.state = ConnState::SynSent(packet_dir.to_owned(), tcp.sequence_number() + 1);
+                                            }
+                                        }
+                                        ConnState::SynSent(syn_dir, expected_tcp_ack) => {
+                                            if tcp.syn() && tcp.ack() && syn_dir != &packet_dir && tcp.acknowledgment_number() == *expected_tcp_ack {
+                                                conn.state = ConnState::Established(syn_dir.to_owned());
+                                            }
+                                        }
+                                        _ => {}
+                                    }
                                 }
                                 conn.add_bytes(tcp_payload_len as u64, &packet_dir);
-                                debug!("      TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
+                                let log_level = match conn.state {
+                                    ConnState::Established(_) => {
+                                        // If it was just established now by one of the parties
+                                        if tcp.syn() { Level::Debug } else { Level::Trace }
+                                    }
+                                    ConnState::Created => {
+                                        // This state after at least one packet, means that the first packet was not SYN
+                                        // It probably means that we watch an already established connection so we should ignore it
+                                        Level::Trace
+                                    }
+                                    _ => { Level::Debug }
+                                };
+                                log!(log_level, "      TCP {}: {:?}:{} => {:?}:{}, len {}, {:?}",
                                          conn.conn_sequence,
                                          ip_header.source_addr(),
                                          tcp.source_port(),
@@ -209,10 +247,14 @@ enum ConnState {
     Created,
     /// A SYN was detected, sent by the specified direction, carrying the specified TCP sequence
     SynSent(PacketDir, u32),
-    Established,
-    FinWait1(PacketDir),
-    FinWait2(PacketDir),
-    Closed,
+    /// Who sent the first SYN
+    Established(PacketDir),
+    /// Who sent the first FIN, along with the expected ack sequence from the other direction
+    FinWait1(PacketDir, u32),
+    /// Who sent the response FIN, along with the expected ack sequence from the other direction
+    FinWait2(PacketDir, u32),
+    /// Last one to send the RST or FIN
+    Closed(PacketDir),
 }
 
 /// State direction is required because each connection handles both directions of traffic.
