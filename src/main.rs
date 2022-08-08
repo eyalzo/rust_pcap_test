@@ -28,6 +28,9 @@ fn main() {
             Err(error) => { panic!("Failed to get default pcap device: {}", error) }
             Ok(device) => {
                 info!("Default device: {:?}", device);
+                for cur_addr in &device.addresses {
+                    trace!("      {}", cur_addr.addr);
+                }
                 match device.open() {
                     Err(error) => { panic!("Failed to open default pcap device: {}", error) }
                     Ok(cap) => {
