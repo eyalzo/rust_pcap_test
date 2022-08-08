@@ -2,7 +2,7 @@ mod connections;
 
 use env_logger::Env;
 use log::{debug, info, trace};
-use pcap::Device;
+use pcap::{Active, Capture, Device};
 use crate::connections::{Connections};
 
 fn main() {
@@ -23,10 +23,21 @@ fn main() {
     }
 
     // Get the default device
-    let mut cap = Device::lookup().unwrap().open().unwrap();
-
-    info!("Default device: {:?} ({:?})", cap.get_datalink().get_name().unwrap(),
-             cap.get_datalink().get_description().unwrap());
+    let mut cap: Capture<Active> =
+        match Device::lookup() {
+            Err(error) => { panic!("Failed to get default pcap device: {}", error) }
+            Ok(device) => {
+                info!("Default device: {:?}", device);
+                match device.open() {
+                    Err(error) => { panic!("Failed to open default pcap device: {}", error) }
+                    Ok(cap) => {
+                        info!("Default capture data-link: {{name: {:?},desc: {:?}}}", cap.get_datalink().get_name().unwrap(),
+                            cap.get_datalink().get_description().unwrap());
+                        cap
+                    }
+                }
+            }
+        };
 
     let mut connections = Connections::new();
 
