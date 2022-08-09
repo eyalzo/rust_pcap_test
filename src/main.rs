@@ -3,7 +3,7 @@ mod utils;
 
 use env_logger::Env;
 use log::{debug, info, trace};
-use pcap::{Active, Capture, Device};
+use pcap::{Active, Capture, Device, Direction};
 use crate::connections::{Connections};
 
 fn main() {
@@ -24,7 +24,7 @@ fn main() {
     }
 
     // Get the default device
-    let mut cap: Capture<Active> =
+    let main_device =
         match Device::lookup() {
             Err(error) => { panic!("Failed to get default pcap device: {}", error) }
             Ok(device) => {
@@ -32,16 +32,31 @@ fn main() {
                 for cur_addr in &device.addresses {
                     trace!("      {}", cur_addr.addr);
                 }
-                match device.open() {
-                    Err(error) => { panic!("Failed to open default pcap device: {}", error) }
-                    Ok(cap) => {
-                        info!("Default capture data-link: {{name: {:?},desc: {:?}}}", cap.get_datalink().get_name().unwrap(),
-                            cap.get_datalink().get_description().unwrap());
-                        cap
-                    }
+                device
+            }
+        };
+
+    let mut cap: Capture<Active> =
+        {
+            match Capture::from_device(main_device).unwrap()
+                .promisc(true)
+                .immediate_mode(true)
+                .snaplen(65535)
+                .buffer_size(10000000)
+                .open() {
+                Err(error) => { panic!("Failed to open default pcap device: {}", error) }
+                Ok(cap) => {
+                    info!("Default capture data-link: {{name: {:?},desc: {:?}}}",
+                        cap.get_datalink().get_name().unwrap(),
+            cap.get_datalink().get_description().unwrap());
+                    cap
                 }
             }
         };
+
+// Prepare filter (optional)
+    cap.filter("tcp", false).expect("Failed to apply pcap filter");
+    cap.direction(Direction::InOut).expect("Failed to set pcap direction");
 
     let mut connections = Connections::new();
 
