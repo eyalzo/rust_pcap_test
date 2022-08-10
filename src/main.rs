@@ -4,9 +4,21 @@ mod utils;
 use env_logger::Env;
 use log::{debug, info, trace};
 use pcap::{Active, Capture, Device, Direction};
+use clap::Parser;
 use crate::connections::{Connections};
 
+#[derive(Parser)]
+#[clap(author, version, about)]
+struct Cli {
+    /// Filter in BPF (pcap) format.
+    /// See http://biot.com/capstats/bpf.html for more information about this syntax.
+    #[clap(short, long, value_parser, default_value = "tcp")]
+    filter: String,
+}
+
 fn main() {
+    let args = Cli::parse();
+
     // If RUST_LOG is not set, then default to INFO level
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     info!("Start pcap_test...");
@@ -54,8 +66,8 @@ fn main() {
             }
         };
 
-// Prepare filter (optional)
-    cap.filter("tcp", false).expect("Failed to apply pcap filter");
+    // Prepare filter (optional)
+    cap.filter(&args.filter, false).expect("Failed to apply pcap filter");
     cap.direction(Direction::InOut).expect("Failed to set pcap direction");
 
     let mut connections = Connections::new();
