@@ -100,7 +100,7 @@ impl Conn {
                 (dst_port as u128) << 48;
             return (sign, PacketDir::SrcLowAddr);
         }
-        let sign = (u32::from_be_bytes(dst_ip.octets()) as u128) << 16|
+        let sign = (u32::from_be_bytes(dst_ip.octets()) as u128) << 16 |
             (dst_port as u128) |
             (u32::from_be_bytes(src_ip.octets()) as u128) << 64 |
             (src_port as u128) << 48;
@@ -118,22 +118,62 @@ impl Conn {
         }
     }
 
+    fn relative_seq(&self, packet_dir: &PacketDir, seq: u32) -> u64 {
+        let flow = match packet_dir {
+            PacketDir::SrcLowAddr => { &self.flow_src_low }
+            _ => { &self.flow_src_high }
+        };
+
+        flow.relative_seq(seq)
+    }
+
+    fn relative_ack(&self, packet_dir: &PacketDir, ack: u32) -> u64 {
+        let flow = match packet_dir {
+            PacketDir::SrcLowAddr => { &self.flow_src_high }
+            _ => { &self.flow_src_low }
+        };
+
+        flow.relative_seq(ack)
+    }
+
     pub(crate) fn log(&self, tcp: &TcpHeaderSlice, tcp_payload_len: u16, packet_dir: &PacketDir) {
+        let log_level: Option<Level>;
         // Determine log level by connection's state
-        let log_level = match self.state {
+        match self.state {
             ConnState::Established(_) => {
                 // If it was just established now by one of the parties
-                if tcp.syn() { Level::Debug } else { Level::Trace }
+                if tcp.syn() {
+                    log_level = Some(Level::Debug)
+                } else {
+                    if !log_enabled!(Level::Trace) { return; }
+                    log_level = Some(Level::Trace);
+                    if tcp_payload_len == 0 {
+                        if tcp.ack() {
+                            log!(Level::Trace, "TCP {}: {} ack {}",
+                                         self.conn_sequence,
+                match packet_dir { PacketDir::SrcLowAddr => {"=>"}, _=>{"<="} },
+                                         self.relative_ack(packet_dir, tcp.acknowledgment_number()));
+                            return;
+                        }
+                    } else {
+                        log!(Level::Trace, "TCP {}: {} seq {}, len {}",
+                                         self.conn_sequence,
+                match packet_dir { PacketDir::SrcLowAddr => {"=>"}, _=>{"<="} },
+                                         self.relative_seq(packet_dir, tcp.sequence_number()),
+                            tcp_payload_len);
+                        return;
+                    }
+                }
             }
             ConnState::Created => {
                 // This state after at least one packet, means that the first packet was not SYN
                 // It probably means that we watch an already established connection so we should ignore it
-                Level::Trace
+                log_level = Some(Level::Trace)
             }
-            _ => { Level::Debug }
+            _ => { log_level = Some(Level::Debug) }
         };
-        if log_enabled!(log_level) {
-            log!(log_level, "TCP {}: {} {} {}, len {}, {} {:?}",
+        if log_enabled!(log_level.unwrap()) {
+            log!(log_level.unwrap(), "TCP {}: {} {} {}, len {}, {} {:?}",
                                          self.conn_sequence,
                                          self.addresses_as_str(true),
                 match packet_dir { PacketDir::SrcLowAddr => {"=>"}, _=>{"<="} },

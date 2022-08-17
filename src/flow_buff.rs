@@ -36,6 +36,10 @@ impl FlowBuff {
         self.max_seq = initial_sequence_number as u64;
     }
 
+    pub fn relative_seq(&self, seq: u32) -> u64 {
+        (seq as u64) + (self.wrap_around as u64) * (u32::MAX as u64) - self.initial_sequence_number as u64 - 1u64
+    }
+
     pub fn add_bytes(&mut self, tcp_seq: u32, byte_count: u64) {
         self.packet_count += 1;
         // Calculate the sequence number of the last byte
