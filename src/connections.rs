@@ -1,11 +1,10 @@
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
-use log::{Level, log, warn};
+use log::{warn};
 use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 use pcap::Packet;
 use crate::conn::Conn;
 use crate::conn::ConnState;
-use crate::utils::tcp_flags_to_string;
 
 /// Hold TCP connections, along with statistics per connection and timeouts
 #[derive(Debug, Clone)]
@@ -128,28 +127,7 @@ impl Connections {
                                     }
                                 }
                                 conn.add_bytes(tcp.sequence_number(), tcp_payload_len as u64, &packet_dir);
-                                // Determine log level by connection's state
-                                let log_level = match conn.state {
-                                    ConnState::Established(_) => {
-                                        // If it was just established now by one of the parties
-                                        if tcp.syn() { Level::Debug } else { Level::Trace }
-                                    }
-                                    ConnState::Created => {
-                                        // This state after at least one packet, means that the first packet was not SYN
-                                        // It probably means that we watch an already established connection so we should ignore it
-                                        Level::Trace
-                                    }
-                                    _ => { Level::Debug }
-                                };
-                                log!(log_level, "TCP {}: {:?}:{} => {:?}:{}, len {}, {} {:?}",
-                                         conn.conn_sequence,
-                                         ip_header.source_addr(),
-                                         tcp.source_port(),
-                                         ip_header.destination_addr(),
-                                         tcp.destination_port(),
-                                         tcp_payload_len,
-                                    tcp_flags_to_string(&tcp),
-                                         conn);
+                                conn.log(&ip_header, &tcp, tcp_payload_len);
                             }
                             _ => {
                                 self.packet_not_tcp_count += 1;

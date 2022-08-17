@@ -1,7 +1,10 @@
 use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::Instant;
+use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice};
+use log::{Level, log, log_enabled};
 use crate::flow_buff::FlowBuff;
+use crate::utils::tcp_flags_to_string;
 
 /// Hold a TCP connections, along with statistics
 /// The lower address is always considered "source" or xxx_1 in field names.
@@ -96,6 +99,33 @@ impl Conn {
             PacketDir::SrcHighAddr => {
                 self.flow_src_high.add_bytes(tcp_seq, byte_count);
             }
+        }
+    }
+
+    pub(crate) fn log(&self, ip_header: &Ipv4HeaderSlice, tcp: &TcpHeaderSlice, tcp_payload_len: u16) {
+        // Determine log level by connection's state
+        let log_level = match self.state {
+            ConnState::Established(_) => {
+                // If it was just established now by one of the parties
+                if tcp.syn() { Level::Debug } else { Level::Trace }
+            }
+            ConnState::Created => {
+                // This state after at least one packet, means that the first packet was not SYN
+                // It probably means that we watch an already established connection so we should ignore it
+                Level::Trace
+            }
+            _ => { Level::Debug }
+        };
+        if log_enabled!(log_level) {
+            log!(log_level, "TCP {}: {:?}:{} => {:?}:{}, len {}, {} {:?}",
+                                         self.conn_sequence,
+                                         ip_header.source_addr(),
+                                         tcp.source_port(),
+                                         ip_header.destination_addr(),
+                                         tcp.destination_port(),
+                                         tcp_payload_len,
+                                    tcp_flags_to_string(&tcp),
+                                         self);
         }
     }
 }
