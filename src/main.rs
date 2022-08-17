@@ -28,17 +28,17 @@ fn main() {
     info!("Start pcap_test...");
 
     // Get the default device name, to be used later when looking at the device list
-    let mut main_device_name =
-        match Device::lookup() {
-            Err(error) => { panic!("Failed to get default pcap device: {}", error) }
-            Ok(device) => {
-                device.name
+    let main_device_name = match args.device {
+        Some(arg_device) => { String::from(arg_device) }
+        None => {
+            match Device::lookup() {
+                Err(error) => { panic!("Failed to get default pcap device: {}", error) }
+                Ok(device) => {
+                    device.name
+                }
             }
-        };
-
-    if args.device.is_some() {
-        main_device_name = String::from(args.device.unwrap());
-    }
+        }
+    };
 
     let mut main_device: Option<Device> = None;
     let device_list = Device::list().expect("Failed to get device list");
