@@ -4,7 +4,7 @@ mod flow_buff;
 mod utils;
 
 use env_logger::Env;
-use log::{debug, info, trace};
+use log::{info, Level, log_enabled, trace};
 use pcap::{Active, Capture, Device, Direction};
 use clap::Parser;
 use crate::connections::{Connections};
@@ -44,11 +44,12 @@ fn main() {
 
     let mut main_device: Option<Device> = None;
     let device_list = Device::list().expect("Failed to get device list");
-    info!("Device list has {} elements. Those with addresses:", device_list.len());
+    info!("Device list has {} elements. Those with addresses displayed in TRACE log level.", device_list.len());
     for cur_device in device_list {
         if cur_device.name.eq(&main_device_name) { main_device = Some(cur_device.to_owned()); }
+        if !log_enabled!(Level::Trace) { continue; }
         if cur_device.addresses.len() <= 0 { continue; }
-        debug!("   Device '{}' = {} ({} addresses)", cur_device.name,
+        trace!("   Device '{}' = {} ({} addresses)", cur_device.name,
                  cur_device.desc.unwrap_or(String::from("unknown")),
                  cur_device.addresses.len());
         for cur_addr in cur_device.addresses {
@@ -69,9 +70,9 @@ fn main() {
                 .snaplen(65535)
                 .buffer_size(10000000)
                 .open() {
-                Err(error) => { panic!("Failed to open default pcap device: {}", error) }
+                Err(error) => { panic!("Failed to open pcap device {}: {}", main_device_name, error) }
                 Ok(cap) => {
-                    info!("Default capture data-link: {{name: {:?},desc: {:?}}}",
+                    info!("Capture data-link: {{name: {:?},desc: {:?}}}",
                         cap.get_datalink().get_name().unwrap(),
             cap.get_datalink().get_description().unwrap());
                     cap
