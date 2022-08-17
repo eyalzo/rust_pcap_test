@@ -1,6 +1,7 @@
 use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::Instant;
+use crate::flow_buff::FlowBuff;
 
 /// Hold a TCP connections, along with statistics
 /// The lower address is always considered "source" or xxx_1 in field names.
@@ -12,22 +13,16 @@ pub struct Conn {
     pub(crate) state: ConnState,
     /// Sequence of the connection (all time counter)
     pub(crate) conn_sequence: u32,
-    /// Total number of TCP payload bytes so far, from lower to higher address
-    /// May contain duplicates in case of retransmissions
-    pub(crate) total_bytes_1: u64,
-    /// Total number of TCP payload bytes so far, from higher to lower address
-    /// May contain duplicates in case of retransmissions
-    pub(crate) total_bytes_2: u64,
-    /// Number of packets. Can be empty packets or overlap sequences, from lower to higher address
-    pub(crate) packet_count_1: u32,
-    /// Number of packets. Can be empty packets or overlap sequences, from higher to lower address
-    pub(crate) packet_count_2: u32,
+    /// Buffer and statistics for flow from low to high address
+    pub(crate) flow_src_low: FlowBuff,
+    /// Buffer and statistics for flow from high to low address
+    pub(crate) flow_src_high: FlowBuff,
 }
 
 impl std::fmt::Debug for Conn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "state: {:?}, packets: {}/{}, bytes: {}/{}, time: {}ms", self.state, self.packet_count_1,
-               self.packet_count_2, self.total_bytes_1, self.total_bytes_2,
+        write!(f, "state: {:?}, packets: {}/{}, bytes: {}/{}, time: {}ms", self.state, self.flow_src_low.packet_count,
+               self.flow_src_high.packet_count, self.flow_src_low.byte_count, self.flow_src_high.byte_count,
                self.start_time.elapsed().as_millis())
     }
 }
@@ -51,10 +46,10 @@ pub(crate) enum ConnState {
 /// State direction is required because each connection handles both directions of traffic.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PacketDir {
-    /// The sender of the related packet is the connection's source address
+    /// The sender of the related packet is the lower address (IP, then port)
     SrcLowAddr,
-    /// The sender of the related packet is the connection's destination address
-    DstLowAddr,
+    /// The sender of the related packet is the higher address (IP, then port)
+    SrcHighAddr,
 }
 
 impl Conn {
@@ -63,10 +58,8 @@ impl Conn {
             state: ConnState::Created,
             start_time: Instant::now(),
             conn_sequence,
-            total_bytes_1: 0,
-            total_bytes_2: 0,
-            packet_count_1: 0,
-            packet_count_2: 0,
+            flow_src_low: FlowBuff::new(),
+            flow_src_high: FlowBuff::new(),
         }
     }
 
@@ -84,18 +77,16 @@ impl Conn {
             (dst_port as u128) << 32 |
             (u32::from_be_bytes(src_ip.octets()) as u128) << 48 |
             (src_port as u128) << 80;
-        return (sign, PacketDir::DstLowAddr);
+        return (sign, PacketDir::SrcHighAddr);
     }
 
     pub fn add_bytes(&mut self, byte_count: u64, packet_dir: &PacketDir) {
         match packet_dir {
             PacketDir::SrcLowAddr => {
-                self.total_bytes_1 += byte_count;
-                self.packet_count_1 += 1;
+                self.flow_src_low.add_bytes(byte_count);
             }
-            PacketDir::DstLowAddr => {
-                self.total_bytes_2 += byte_count;
-                self.packet_count_2 += 1;
+            PacketDir::SrcHighAddr => {
+                self.flow_src_high.add_bytes(byte_count);
             }
         }
     }
