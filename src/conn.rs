@@ -63,6 +63,13 @@ impl Conn {
         }
     }
 
+    pub fn set_initial_sequence_number(&mut self, packet_dir: &PacketDir, initial_sequence_number: u32) {
+        match packet_dir {
+            PacketDir::SrcLowAddr => { self.flow_src_low.set_initial_sequence_number(initial_sequence_number) }
+            PacketDir::SrcHighAddr => { self.flow_src_high.set_initial_sequence_number(initial_sequence_number) }
+        }
+    }
+
     /// Connection signature by 4-tuple, sorted by address, so both directions get the same deterministic signature
     /// Return the signature, along with the direction to be used later for statistics
     pub fn sign_by_tuple(src_ip: Ipv4Addr, src_port: u16, dst_ip: Ipv4Addr, dst_port: u16) -> (u128, PacketDir) {
@@ -80,13 +87,13 @@ impl Conn {
         return (sign, PacketDir::SrcHighAddr);
     }
 
-    pub fn add_bytes(&mut self, byte_count: u64, packet_dir: &PacketDir) {
+    pub fn add_bytes(&mut self, tcp_seq: u32, byte_count: u64, packet_dir: &PacketDir) {
         match packet_dir {
             PacketDir::SrcLowAddr => {
-                self.flow_src_low.add_bytes(byte_count);
+                self.flow_src_low.add_bytes(tcp_seq, byte_count);
             }
             PacketDir::SrcHighAddr => {
-                self.flow_src_high.add_bytes(byte_count);
+                self.flow_src_high.add_bytes(tcp_seq, byte_count);
             }
         }
     }

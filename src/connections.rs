@@ -115,17 +115,19 @@ impl Connections {
                                             // A SYN without ACK
                                             if tcp.syn() && !tcp.ack() {
                                                 conn.state = ConnState::SynSent(packet_dir.to_owned(), tcp.sequence_number() + 1);
+                                                conn.set_initial_sequence_number(&packet_dir, tcp.sequence_number());
                                             }
                                         }
                                         ConnState::SynSent(syn_dir, expected_tcp_ack) => {
                                             if tcp.syn() && tcp.ack() && syn_dir != &packet_dir && tcp.acknowledgment_number() == *expected_tcp_ack {
                                                 conn.state = ConnState::Established(syn_dir.to_owned());
+                                                conn.set_initial_sequence_number(&packet_dir, tcp.sequence_number());
                                             }
                                         }
                                         _ => {}
                                     }
                                 }
-                                conn.add_bytes(tcp_payload_len as u64, &packet_dir);
+                                conn.add_bytes(tcp.sequence_number(), tcp_payload_len as u64, &packet_dir);
                                 // Determine log level by connection's state
                                 let log_level = match conn.state {
                                     ConnState::Established(_) => {
