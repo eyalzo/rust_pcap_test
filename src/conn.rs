@@ -63,6 +63,7 @@ impl Conn {
         }
     }
 
+    /// Save the ISN per flow, to be used later for sequence tracing and buffering.
     pub fn set_initial_sequence_number(&mut self, packet_dir: &PacketDir, initial_sequence_number: u32) {
         match packet_dir {
             PacketDir::SrcLowAddr => { self.flow_src_low.set_initial_sequence_number(initial_sequence_number) }
