@@ -1,7 +1,8 @@
 use std::fmt;
+use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::time::Instant;
-use etherparse::{Ipv4HeaderSlice, TcpHeaderSlice};
+use etherparse::{TcpHeaderSlice};
 use log::{Level, log, log_enabled};
 use crate::flow_buff::FlowBuff;
 use crate::utils::tcp_flags_to_string;
@@ -16,6 +17,8 @@ pub struct Conn {
     pub(crate) state: ConnState,
     /// Sequence of the connection (all time counter)
     pub(crate) conn_sequence: u32,
+    /// Signature made of IPs and ports
+    conn_sign: u128,
     /// Buffer and statistics for flow from low to high address
     pub(crate) flow_src_low: FlowBuff,
     /// Buffer and statistics for flow from high to low address
@@ -56,11 +59,12 @@ pub enum PacketDir {
 }
 
 impl Conn {
-    pub(crate) fn new(conn_sequence: u32) -> Self {
+    pub(crate) fn new(conn_sequence: u32, conn_sign: u128) -> Self {
         Self {
             state: ConnState::Created,
             start_time: Instant::now(),
             conn_sequence,
+            conn_sign,
             flow_src_low: FlowBuff::new(),
             flow_src_high: FlowBuff::new(),
         }
@@ -74,20 +78,32 @@ impl Conn {
         }
     }
 
+    /// Get the "IP:port" of the lower or higher address.
+    pub fn addresses_as_str(&self, low_address: bool) -> String {
+        // Each IP is 4*8=32 bits, and port is 16 bits
+        // The higher IP:port gets the higher bits
+        if low_address {
+            return format!("{}.{}.{}.{}:{}", (self.conn_sign >> 40) as u8, (self.conn_sign >> 32) as u8,
+                           (self.conn_sign >> 24) as u8, (self.conn_sign >> 16) as u8, self.conn_sign as u16);
+        }
+        return format!("{}.{}.{}.{}:{}", (self.conn_sign >> 88) as u8, (self.conn_sign >> 80) as u8,
+                       (self.conn_sign >> 72) as u8, (self.conn_sign >> 64) as u8, (self.conn_sign >> 56) as u16);
+    }
+
     /// Connection signature by 4-tuple, sorted by address, so both directions get the same deterministic signature
     /// Return the signature, along with the direction to be used later for statistics
     pub fn sign_by_tuple(src_ip: Ipv4Addr, src_port: u16, dst_ip: Ipv4Addr, dst_port: u16) -> (u128, PacketDir) {
         if src_ip < dst_ip || src_port < dst_port {
-            let sign = (u32::from_be_bytes(src_ip.octets()) as u128) |
-                (src_port as u128) << 32 |
-                (u32::from_be_bytes(dst_ip.octets()) as u128) << 48 |
-                (dst_port as u128) << 80;
+            let sign = (u32::from_be_bytes(src_ip.octets()) as u128) << 16 |
+                (src_port as u128) |
+                (u32::from_be_bytes(dst_ip.octets()) as u128) << 64 |
+                (dst_port as u128) << 48;
             return (sign, PacketDir::SrcLowAddr);
         }
-        let sign = (u32::from_be_bytes(dst_ip.octets()) as u128) |
-            (dst_port as u128) << 32 |
-            (u32::from_be_bytes(src_ip.octets()) as u128) << 48 |
-            (src_port as u128) << 80;
+        let sign = (u32::from_be_bytes(dst_ip.octets()) as u128) << 16|
+            (dst_port as u128) |
+            (u32::from_be_bytes(src_ip.octets()) as u128) << 64 |
+            (src_port as u128) << 48;
         return (sign, PacketDir::SrcHighAddr);
     }
 
@@ -102,7 +118,7 @@ impl Conn {
         }
     }
 
-    pub(crate) fn log(&self, ip_header: &Ipv4HeaderSlice, tcp: &TcpHeaderSlice, tcp_payload_len: u16) {
+    pub(crate) fn log(&self, tcp: &TcpHeaderSlice, tcp_payload_len: u16, packet_dir: &PacketDir) {
         // Determine log level by connection's state
         let log_level = match self.state {
             ConnState::Established(_) => {
@@ -117,12 +133,11 @@ impl Conn {
             _ => { Level::Debug }
         };
         if log_enabled!(log_level) {
-            log!(log_level, "TCP {}: {:?}:{} => {:?}:{}, len {}, {} {:?}",
+            log!(log_level, "TCP {}: {} {} {}, len {}, {} {:?}",
                                          self.conn_sequence,
-                                         ip_header.source_addr(),
-                                         tcp.source_port(),
-                                         ip_header.destination_addr(),
-                                         tcp.destination_port(),
+                                         self.addresses_as_str(true),
+                match packet_dir { PacketDir::SrcLowAddr => {"=>"}, _=>{"<="} },
+                                         self.addresses_as_str(false),
                                          tcp_payload_len,
                                     tcp_flags_to_string(&tcp),
                                          self);

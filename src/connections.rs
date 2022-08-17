@@ -45,7 +45,7 @@ impl Connections {
             Occupied(o) => { o.into_mut() }
             Vacant(v) => {
                 self.conn_alltime_count += 1;
-                v.insert(Conn::new(self.conn_alltime_count))
+                v.insert(Conn::new(self.conn_alltime_count, conn_sign))
             }
         }
     }
@@ -127,7 +127,7 @@ impl Connections {
                                     }
                                 }
                                 conn.add_bytes(tcp.sequence_number(), tcp_payload_len as u64, &packet_dir);
-                                conn.log(&ip_header, &tcp, tcp_payload_len);
+                                conn.log(&tcp, tcp_payload_len, &packet_dir);
                             }
                             _ => {
                                 self.packet_not_tcp_count += 1;
