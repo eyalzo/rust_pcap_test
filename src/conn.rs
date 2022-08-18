@@ -2,7 +2,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::time::Instant;
-use etherparse::{TcpHeaderSlice};
+use etherparse::{TcpHeaderSlice, TcpOptionElement};
 use log::{Level, log, log_enabled};
 use crate::flow_buff::FlowBuff;
 use crate::utils::tcp_flags_to_string;
@@ -136,6 +136,40 @@ impl Conn {
         flow.relative_seq(ack)
     }
 
+    fn scaled_window(&self, packet_dir: &PacketDir, window: u16) -> u32 {
+        match packet_dir {
+            PacketDir::SrcLowAddr => { self.flow_src_high.scaled_window(window) }
+            _ => { self.flow_src_low.scaled_window(window) }
+        }
+    }
+
+    pub(crate) fn process_tcp_options(&mut self, packet_dir: &PacketDir, tcp: &TcpHeaderSlice) {
+        let flow = match packet_dir {
+            PacketDir::SrcLowAddr => { &mut self.flow_src_low }
+            _ => { &mut self.flow_src_high }
+        };
+
+        for option in tcp.options_iterator() {
+            match option {
+                Ok(element) => {
+                    match element {
+                        TcpOptionElement::Noop => {}
+                        TcpOptionElement::MaximumSegmentSize(_) => {}
+                        TcpOptionElement::WindowScale(window_scale) => {
+                            if window_scale >= 1 && window_scale <= 14 {
+                                flow.window_scale = 2u16.pow(window_scale as u32);
+                            }
+                        }
+                        TcpOptionElement::SelectiveAcknowledgementPermitted => {}
+                        TcpOptionElement::SelectiveAcknowledgement(_, _) => {}
+                        TcpOptionElement::Timestamp(_, _) => {}
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+    }
+
     pub(crate) fn log(&self, tcp: &TcpHeaderSlice, tcp_payload_len: u16, packet_dir: &PacketDir) {
         let log_level: Option<Level>;
         // Determine log level by connection's state
@@ -143,16 +177,17 @@ impl Conn {
             ConnState::Established(_) => {
                 // If it was just established now by one of the parties
                 if tcp.syn() {
-                    log_level = Some(Level::Debug)
+                    log_level = Some(Level::Debug);
                 } else {
                     if !log_enabled!(Level::Trace) { return; }
                     log_level = Some(Level::Trace);
                     if tcp_payload_len == 0 {
                         if tcp.ack() {
-                            log!(Level::Trace, "TCP {}: {} ack {}",
+                            log!(Level::Trace, "TCP {}: {} ack {}, win {}",
                                          self.conn_sequence,
                 match packet_dir { PacketDir::SrcLowAddr => {"=>"}, _=>{"<="} },
-                                         self.relative_ack(packet_dir, tcp.acknowledgment_number()));
+                                         self.relative_ack(packet_dir, tcp.acknowledgment_number()),
+                            self.scaled_window(packet_dir, tcp.window_size()));
                             return;
                         }
                     } else {

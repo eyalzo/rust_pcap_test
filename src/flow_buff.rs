@@ -17,6 +17,9 @@ pub struct FlowBuff {
     pub(crate) byte_count: u64,
     /// Number of packets. Can be empty packets or overlap sequences
     pub(crate) packet_count: u32,
+    /// TCP window scale multiplier (from 1 to 2^14) to multiply the transmitted window size (up to 64KB).
+    /// By using the window scale option, the receive window size may be increased up to a maximum value of 1,073,725,440.
+    pub(crate) window_scale: u16,
 }
 
 impl FlowBuff {
@@ -28,6 +31,7 @@ impl FlowBuff {
             packet_count: 0,
             wrap_around: 0,
             max_seq: 0,
+            window_scale: 1,
         }
     }
 
@@ -38,6 +42,11 @@ impl FlowBuff {
 
     pub fn relative_seq(&self, seq: u32) -> u64 {
         (seq as u64) + (self.wrap_around as u64) * (u32::MAX as u64) - self.initial_sequence_number as u64 - 1u64
+    }
+
+    /// Calculate actual window size, given the published window size (up to 64KB) and the recorded window scaling (from SYN).
+    pub fn scaled_window(&self, window: u16) -> u32 {
+        (window as u32) * (self.window_scale as u32)
     }
 
     pub fn add_bytes(&mut self, tcp_seq: u32, byte_count: u64) {

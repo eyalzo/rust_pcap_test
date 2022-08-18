@@ -115,12 +115,14 @@ impl Connections {
                                             if tcp.syn() && !tcp.ack() {
                                                 conn.state = ConnState::SynSent(packet_dir.to_owned(), tcp.sequence_number() + 1);
                                                 conn.set_initial_sequence_number(&packet_dir, tcp.sequence_number());
+                                                conn.process_tcp_options(&packet_dir, &tcp);
                                             }
                                         }
                                         ConnState::SynSent(syn_dir, expected_tcp_ack) => {
                                             if tcp.syn() && tcp.ack() && syn_dir != &packet_dir && tcp.acknowledgment_number() == *expected_tcp_ack {
                                                 conn.state = ConnState::Established(syn_dir.to_owned());
                                                 conn.set_initial_sequence_number(&packet_dir, tcp.sequence_number());
+                                                conn.process_tcp_options(&packet_dir, &tcp);
                                             }
                                         }
                                         _ => {}
