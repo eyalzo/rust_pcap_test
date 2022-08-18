@@ -143,6 +143,8 @@ impl Conn {
         }
     }
 
+    /// Process TCP options. To be called when detecting a proper SYN packet.
+    /// For now, it only looks for window scaling for later display.
     pub(crate) fn process_tcp_options(&mut self, packet_dir: &PacketDir, tcp: &TcpHeaderSlice) {
         let flow = match packet_dir {
             PacketDir::SrcLowAddr => { &mut self.flow_src_low }
@@ -153,16 +155,15 @@ impl Conn {
             match option {
                 Ok(element) => {
                     match element {
-                        TcpOptionElement::Noop => {}
-                        TcpOptionElement::MaximumSegmentSize(_) => {}
+                        TcpOptionElement::MaximumSegmentSize(_) => {
+                            //TODO save MSS and use it when opening connections
+                        }
                         TcpOptionElement::WindowScale(window_scale) => {
                             if window_scale >= 1 && window_scale <= 14 {
                                 flow.window_scale = 2u16.pow(window_scale as u32);
                             }
                         }
-                        TcpOptionElement::SelectiveAcknowledgementPermitted => {}
-                        TcpOptionElement::SelectiveAcknowledgement(_, _) => {}
-                        TcpOptionElement::Timestamp(_, _) => {}
+                        _ => {}
                     }
                 }
                 Err(_) => {}
