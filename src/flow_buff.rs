@@ -2,8 +2,10 @@ use std::io::{Error, ErrorKind, Write};
 use std::ops::Range;
 use log::warn;
 
-/// A far a future sequence number is allowed
+/// How far a future sequence number is allowed
 const MAX_FORWARD_SEQ_JUMP: u64 = 100000;
+/// The maximum buffer size allowed before a panic is called
+const MAX_BUFFER_SIZE: usize = 1000000;
 
 #[derive(Clone)]
 pub struct FlowBuff {
@@ -94,6 +96,9 @@ impl FlowBuff {
         self.max_seq = initial_sequence_number as u64;
     }
 
+    /// Get the relative 0-based sequence number of the given TCP sequence.
+    /// Handles a wrap around of TCP sequence numbers, that are only 32-bits.
+    /// For example, the first payload byte is 0, the second is 1, etc.
     pub fn relative_seq(&self, seq: u32) -> u64 {
         (seq as u64) + (self.wrap_around as u64) * (u32::MAX as u64) - self.initial_sequence_number as u64 - 1u64
     }
@@ -103,12 +108,12 @@ impl FlowBuff {
         (window as u32) * (self.window_scale as u32)
     }
 
-    pub fn add_bytes(&mut self, tcp_seq: u32, byte_count: u64) {
+    pub fn add_bytes(&mut self, tcp_seq: u32, byte_count: usize, data: &[u8]) {
         self.packet_count += 1;
         // Calculate the sequence number of the last byte
         if byte_count > 0 {
-            self.byte_count += byte_count;
-            let last_seq: u64 = (tcp_seq as u64) + byte_count + (self.wrap_around as u64 * u32::MAX as u64);
+            self.byte_count += byte_count as u64;
+            let last_seq: u64 = (tcp_seq as u64) + byte_count as u64 + (self.wrap_around as u64 * u32::MAX as u64);
             // Check if this sequence number creates a wrap around that makes sense
             if last_seq < self.max_seq && (last_seq + u32::MAX as u64) > self.max_seq && (last_seq + u32::MAX as u64 - MAX_FORWARD_SEQ_JUMP) <= self.max_seq {
                 self.wrap_around += 1;
@@ -118,6 +123,18 @@ impl FlowBuff {
             } else {
                 warn!("Conn seq error: ISN {}, max {}, packet seq {} len {}, calc last {}",
                     self.initial_sequence_number, self.max_seq, tcp_seq, byte_count, last_seq);
+            }
+            // Save to buffer
+            // Typically all 3 length are identical- packet, packet header, packet data. TCP payload is 66 bytes less.
+            //TODO save to buffer
+            let offset = data.len() - byte_count;
+            if offset > 0 {
+                let buf = &data[offset..data.len()];
+                //TODO handle a future buffer-shift management
+                let buffer_offset = self.relative_seq(tcp_seq) as usize;
+                self.write_bytes(buf, buffer_offset);
+                //TODO remove print
+                println!("Filled {:?}", self.data_filled_ranges);
             }
         }
     }

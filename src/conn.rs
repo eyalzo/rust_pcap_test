@@ -107,13 +107,13 @@ impl Conn {
         return (sign, PacketDir::SrcHighAddr);
     }
 
-    pub fn add_bytes(&mut self, tcp_seq: u32, byte_count: u64, packet_dir: &PacketDir) {
+    pub fn add_bytes(&mut self, tcp_seq: u32, byte_count: usize, packet_dir: &PacketDir, data: &[u8]) {
         match packet_dir {
             PacketDir::SrcLowAddr => {
-                self.flow_src_low.add_bytes(tcp_seq, byte_count);
+                self.flow_src_low.add_bytes(tcp_seq, byte_count, data);
             }
             PacketDir::SrcHighAddr => {
-                self.flow_src_high.add_bytes(tcp_seq, byte_count);
+                self.flow_src_high.add_bytes(tcp_seq, byte_count, data);
             }
         }
     }

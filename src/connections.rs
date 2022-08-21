@@ -128,7 +128,7 @@ impl Connections {
                                         _ => {}
                                     }
                                 }
-                                conn.add_bytes(tcp.sequence_number(), tcp_payload_len as u64, &packet_dir);
+                                conn.add_bytes(tcp.sequence_number(), tcp_payload_len as usize, &packet_dir, packet);
                                 conn.log(&tcp, tcp_payload_len, &packet_dir);
                             }
                             _ => {
