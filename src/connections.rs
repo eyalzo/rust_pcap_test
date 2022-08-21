@@ -7,7 +7,7 @@ use crate::conn::Conn;
 use crate::conn::ConnState;
 
 /// Hold TCP connections, along with statistics per connection and timeouts
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Connections {
     /// Active connection list
     /// Mapped by the 4-tuple, where the lower address is always considered "source" or xxx_1 in field names.
