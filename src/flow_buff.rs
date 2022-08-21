@@ -74,20 +74,30 @@ impl FlowBuff {
 
     /// Add a range to the list of filled ranges
     /// _note_: Does not fill a gap between two others, or partial overlaps, if that happens
-    fn add_data_filled_range(&mut self, from: usize, to_inclusive: usize) {
+    fn add_data_filled_range(&mut self, start: usize, end_inclusive: usize) {
         for i in 0..self.data_filled_ranges.len() {
             let range = &mut self.data_filled_ranges[i];
-            if range.end + 1 == from {
-                range.end = to_inclusive;
+            // If the new range is the 99% case that is an adjacent range with no gaps
+            if range.end + 1 == start {
+                range.end = end_inclusive;
                 return;
             }
-            if range.start == to_inclusive + 1 {
-                range.start = from;
+            // If the new range is a retransmission
+            if range.start == start {
+                if end_inclusive > range.end {
+                    range.end = end_inclusive;
+                }
+                return;
+            }
+            // If the new range is the one that was missing right before
+            if range.start == end_inclusive + 1 {
+                range.start = start;
                 return;
             }
         }
         // Did not find an overlapping range, so add a range
-        self.data_filled_ranges.push(from..to_inclusive);
+        // Happens with the first range, and normally should not happen often after that
+        self.data_filled_ranges.push(start..end_inclusive);
     }
 
     /// Change the buffer size to size.
