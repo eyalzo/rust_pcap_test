@@ -1,3 +1,5 @@
+use std::io::{Error, ErrorKind, Write};
+use std::ops::Range;
 use log::warn;
 
 /// A far a future sequence number is allowed
@@ -5,6 +7,11 @@ const MAX_FORWARD_SEQ_JUMP: u64 = 100000;
 
 #[derive(Clone)]
 pub struct FlowBuff {
+    /// The buffer itself where the payloads are copied to
+    data: Vec<u8>,
+    /// Collection of filled payloads in buffer.
+    //TODO actually do something with it
+    data_filled_ranges: Vec<Range<usize>>,
     /// TCP initial sequence number (ISN) which is the one before the first payload byte
     initial_sequence_number: u32,
     /// Max sequence seen so far, for total unique payload calculation.
@@ -25,6 +32,8 @@ pub struct FlowBuff {
 impl FlowBuff {
     pub(crate) fn new() -> Self {
         Self {
+            data: vec![],
+            data_filled_ranges: vec![],
             // The ISN will be set later when SYN is detected
             initial_sequence_number: 0,
             byte_count: 0,
@@ -33,6 +42,51 @@ impl FlowBuff {
             max_seq: 0,
             window_scale: 1,
         }
+    }
+
+    /// Return the buffer size
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Append a byte array to the buffer.
+    /// The buffer is automatically extended if needed
+    pub fn write_bytes(&mut self, bytes: &[u8], wpos: usize) {
+        let size = bytes.len() + wpos;
+
+        if size > self.data.len() {
+            self.resize(size);
+        }
+
+        let mut pos = wpos;
+        for v in bytes {
+            self.data[pos] = *v;
+            pos += 1;
+        }
+
+        //TODO merge ranges
+        self.data_filled_ranges.push(wpos..(wpos + bytes.len() - 1));
+    }
+
+    /// Change the buffer size to size.
+    ///
+    /// _Note_: You cannot shrink a buffer with this method
+    pub fn resize(&mut self, size: usize) {
+        let diff = size - self.data.len();
+        if diff > 0 {
+            self.data.extend(std::iter::repeat(0).take(diff))
+        }
+    }
+
+    /// Read a defined amount of raw bytes, or return an IO error if not enough bytes are available.
+    pub fn read_bytes(&mut self, size: usize, rpos: usize) -> Result<Vec<u8>, Error> {
+        if rpos + size > self.data.len() {
+            return Err(Error::new(ErrorKind::UnexpectedEof, "Cannot read enough bytes from buffer"));
+        }
+        let range = rpos..(rpos + size);
+        let mut res = Vec::<u8>::new();
+        res.write_all(&self.data[range])?;
+        Ok(res)
     }
 
     pub fn set_initial_sequence_number(&mut self, initial_sequence_number: u32) {
