@@ -57,6 +57,9 @@ impl FlowBuff {
         let size = bytes.len() + wpos;
 
         if size > self.data.len() {
+            if size > MAX_BUFFER_SIZE {
+                panic!("Test code does not allow large buffers. Asked for {} while max allowed is {}", size, MAX_BUFFER_SIZE)
+            }
             self.resize(size);
         }
 
@@ -66,8 +69,25 @@ impl FlowBuff {
             pos += 1;
         }
 
-        //TODO merge ranges
-        self.data_filled_ranges.push(wpos..(wpos + bytes.len() - 1));
+        self.add_data_filled_range(wpos, wpos + bytes.len() - 1);
+    }
+
+    /// Add a range to the list of filled ranges
+    /// _note_: Does not fill a gap between two others, or partial overlaps, if that happens
+    fn add_data_filled_range(&mut self, from: usize, to_inclusive: usize) {
+        for i in 0..self.data_filled_ranges.len() {
+            let range = &mut self.data_filled_ranges[i];
+            if range.end + 1 == from {
+                range.end = to_inclusive;
+                return;
+            }
+            if range.start == to_inclusive + 1 {
+                range.start = from;
+                return;
+            }
+        }
+        // Did not find an overlapping range, so add a range
+        self.data_filled_ranges.push(from..to_inclusive);
     }
 
     /// Change the buffer size to size.
@@ -126,15 +146,13 @@ impl FlowBuff {
             }
             // Save to buffer
             // Typically all 3 length are identical- packet, packet header, packet data. TCP payload is 66 bytes less.
-            //TODO save to buffer
             let offset = data.len() - byte_count;
             if offset > 0 {
                 let buf = &data[offset..data.len()];
                 //TODO handle a future buffer-shift management
                 let buffer_offset = self.relative_seq(tcp_seq) as usize;
+                // Write the bytes and update the ranges control
                 self.write_bytes(buf, buffer_offset);
-                //TODO remove print
-                println!("Filled {:?}", self.data_filled_ranges);
             }
         }
     }
