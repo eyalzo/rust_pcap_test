@@ -46,6 +46,13 @@ impl FlowBuff {
         }
     }
 
+    /// Check if this connection has bytes ready to process in one of the directions.
+    /// This means that at least the number of requested bytes are present in a buffer from the current position.
+    pub(crate) fn has_ready_bytes(&self, min_ready_bytes: usize) -> bool {
+        let first_buffer = self.data_filled_ranges.get(0);
+        return first_buffer.is_some() && first_buffer.unwrap().len() >= min_ready_bytes;
+    }
+
     /// Return the buffer size
     pub fn len(&self) -> usize {
         self.data.len()

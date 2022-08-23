@@ -50,6 +50,27 @@ impl Connections {
         }
     }
 
+    /// Get all the connections that are closed or have a significant buffer ready to process.
+    /// Result may be empty if no connections match.
+    pub fn get_connections_by_rules(&mut self, closed: bool, min_ready_bytes: usize) -> Vec<&Conn> {
+        let mut result: Vec<&Conn> = Vec::new();
+
+        for (_, conn) in &self.conn_list {
+            if closed {
+                if matches!(conn.state, ConnState::Closed(_)) {
+                    result.push(conn);
+                    continue;
+                }
+            }
+
+            if conn.has_ready_bytes(min_ready_bytes) {
+                result.push(conn);
+            }
+        }
+
+        return result;
+    }
+
     /// Process a pcap packet.
     /// It identifies the connection and handles everything related to statistics, state, etc.
     pub fn process_packet(&mut self, packet: &Packet) {

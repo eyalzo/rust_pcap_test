@@ -118,6 +118,12 @@ impl Conn {
         }
     }
 
+    /// Check if this connection has bytes ready to process in one of the directions.
+    /// This means that at least the number of requested bytes are present in a buffer from the current position.
+    pub(crate) fn has_ready_bytes(&self, min_ready_bytes: usize) -> bool {
+        return self.flow_src_low.has_ready_bytes(min_ready_bytes) || self.flow_src_high.has_ready_bytes(min_ready_bytes)
+    }
+
     fn relative_seq(&self, packet_dir: &PacketDir, seq: u32) -> u64 {
         let flow = match packet_dir {
             PacketDir::SrcLowAddr => { &self.flow_src_low }
