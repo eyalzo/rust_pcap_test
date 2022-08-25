@@ -5,6 +5,7 @@ use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 use pcap::Packet;
 use crate::conn::Conn;
 use crate::conn::ConnState;
+use crate::flow_buff::FlowBuff;
 
 /// Hold TCP connections, along with statistics per connection and timeouts
 #[derive(Clone)]
@@ -69,6 +70,18 @@ impl Connections {
         }
 
         return result;
+    }
+
+    /// Get one connection that has a significant buffer ready to process, or is closed and has something to process.
+    pub fn pop_ready_buffer(&mut self, min_ready_bytes: usize) -> Option<&FlowBuff> {
+        for (_, conn) in &self.conn_list {
+            let result: Option<&FlowBuff> = conn.pop_ready_buffer(matches!(conn.state, ConnState::Closed(_)), min_ready_bytes);
+            if result.is_some() {
+                return result;
+            }
+        }
+
+        return None;
     }
 
     /// Process a pcap packet.

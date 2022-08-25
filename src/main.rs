@@ -3,6 +3,9 @@ mod connections;
 mod flow_buff;
 mod utils;
 
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use env_logger::Env;
 use log::{info, Level, log_enabled, trace};
 use pcap::{Active, Capture, Device, Direction};
@@ -84,11 +87,28 @@ fn main() {
     cap.filter(&args.filter, false).expect("Failed to apply pcap filter");
     cap.direction(Direction::InOut).expect("Failed to set pcap direction");
 
-    let mut connections = Connections::new();
+    let connections: Arc<Mutex<Connections>> = Arc::new(Mutex::new(Connections::new()));
+
+    // Fire up a thread to consume ready buffers
+    let connections_clone = connections.clone();
+    thread::spawn(move || {
+        consume_ready_buffers(&connections_clone);
+    });
+
 
     while let Ok(packet) = cap.next() {
-        connections.process_packet(&packet);
+        connections.lock().unwrap().process_packet(&packet);
     }
 
     info!("End pcap_test.");
+}
+
+fn consume_ready_buffers(connections: &Arc<Mutex<Connections>>) {
+    loop {
+        let mut lock = connections.lock().unwrap();
+        let ready_buffers = lock.get_connections_by_rules(true, 32000);
+        std::mem::drop(lock);
+        //TODO actually consume the buffers
+        thread::sleep(Duration::from_millis(10));
+    }
 }

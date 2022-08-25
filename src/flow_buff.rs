@@ -53,6 +53,12 @@ impl FlowBuff {
         return first_buffer.is_some() && first_buffer.unwrap().len() >= min_ready_bytes;
     }
 
+    /// Answer if it has a significant number of bytes ready, or if the connection is closed and it has something to process.
+    pub(crate) fn has_ready_buffer(&self, closed_connection: bool, min_ready_bytes: usize) -> bool {
+        let first_buffer = self.data_filled_ranges.get(0);
+        return first_buffer.is_some() && (closed_connection || first_buffer.unwrap().len() >= min_ready_bytes);
+    }
+
     /// Return the buffer size
     pub fn len(&self) -> usize {
         self.data.len()

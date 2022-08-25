@@ -121,7 +121,14 @@ impl Conn {
     /// Check if this connection has bytes ready to process in one of the directions.
     /// This means that at least the number of requested bytes are present in a buffer from the current position.
     pub(crate) fn has_ready_bytes(&self, min_ready_bytes: usize) -> bool {
-        return self.flow_src_low.has_ready_bytes(min_ready_bytes) || self.flow_src_high.has_ready_bytes(min_ready_bytes)
+        return self.flow_src_low.has_ready_bytes(min_ready_bytes) || self.flow_src_high.has_ready_bytes(min_ready_bytes);
+    }
+
+    /// Get a direction that has a significant buffer ready to process, or if the connection is closed and has something to process.
+    pub(crate) fn pop_ready_buffer(&self, closed_connection: bool, min_ready_bytes: usize) -> Option<&FlowBuff> {
+        if self.flow_src_low.has_ready_buffer(closed_connection, min_ready_bytes) { return Some(&self.flow_src_low); }
+        if self.flow_src_high.has_ready_buffer(closed_connection, min_ready_bytes) { return Some(&self.flow_src_high); }
+        return None;
     }
 
     fn relative_seq(&self, packet_dir: &PacketDir, seq: u32) -> u64 {
