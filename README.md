@@ -1,6 +1,6 @@
 # Overview
 
-This project aims to provide test implementations for the "rust-pcap" library. 
+This project aims to provide test implementations for the [rust-pcap library](https://github.com/rust-pcap/pcap). 
 The "rust-pcap" library offers a high-level interface for capturing traffic and working with packet capture (PCAP) files in Rust.
 The primary objective of this test project is to ensure the functionality, reliability, and compatibility of the "rust-pcap" library. By creating comprehensive tests, we can verify that the library functions as expected and can handle various scenarios.
 
@@ -46,7 +46,7 @@ Please adhere to the project's coding style and guidelines.
 
 ## License
 
-The "rust_pcap_test" project is licensed under the [MIT License](LICENSE.md). 
+The "rust_pcap_test" project is licensed under the [Apache License 2.0](LICENSE.md). 
 Review the license before making contributions to this project.
 
 ## Contact
